@@ -1,0 +1,49 @@
+idle
+forward_free_0
+forward_check_0
+forward_check_1
+forward_check_2
+backward_0
+backward_1
+backward_2
+left_0
+left_1
+left_2
+right_0
+right_1
+right_2
+
+
+idle --> forward_free_0
+forward_free_0 -timeout-> forward_free_0
+forward_free_0 -bump_0-> backward_0
+forward_free_0 -bump_1-> backward_1
+forward_free_0 -bump_2-> backward_2
+
+backward_0 -timeout-> left_0
+backward_1 -timeout-> right_1
+backward_2 -timeout-> left_2
+
+left_0 --> forward_check_0
+left_1 --> forward_check_1
+left_2 --> forward_check_2
+
+right_0 --> forward_check_0
+right_1 --> forward_check_1
+right_2 --> forward_check_2
+
+forward_check_0 -timeout-> left_0
+forward_check_0 -bump_0-> backward_0
+forward_check_0 -bump_1-> backward_1
+forward_check_0 -bump_2-> backward_2
+
+forward_check_1 -timeout-> left_1
+forward_check_1 -bump_0-> backward_0
+forward_check_1 -bump_1-> backward_1
+forward_check_1 -bump_2-> backward_2
+
+forward_check_2 -timeout-> left_2
+forward_check_2 -bump_0-> backward_0
+forward_check_2 -bump_1-> backward_1
+forward_check_2 -bump_2-> backward_2
+

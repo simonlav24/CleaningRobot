@@ -1,6 +1,9 @@
 import pygame
 from vector import *
 from random import randint
+from functools import partial
+from math import pi
+
 pygame.init()
 
 win_dimensions = Vector(1280, 720)
@@ -10,15 +13,19 @@ clock = pygame.time.Clock()
 fps = 60
 
 BOT_MAX_SPEED = 2
-BOT_ROTATION_SPEED = 0.08
+BOT_ROTATION_SPEED = pi / 32
 BOT_RADIUS = 15
+
+CLOCK_SMALL = 15
+CLOCK_BIG = 15
+CLOCK_PI8 = 4
 
 def load_room(path):
     with open(path, 'r') as file:
         reg = eval(file.readline())
         for wall in reg:
             Wall(wall)
-    
+
 def save_room(path):
     with open(path, 'w+') as file:
         file.write(str(Wall._reg))
@@ -45,11 +52,88 @@ class Bot:
         self.speed = BOT_MAX_SPEED
         
         self.sensors = [0, -1, 1]
+        self.sensors_color = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
         self.sensor_lines = []
+
+        self.state_map = {
+            'idle': {
+                'timeout': partial(self.handle_movement, 'forward_free_0', CLOCK_SMALL, self.move_skip),
+            },
+            'forward_free_0': {
+                'timeout': partial(self.handle_movement, 'forward_free_0', CLOCK_SMALL, self.move_forward),
+                'bump_0': partial(self.handle_movement, 'backward_0', CLOCK_SMALL, self.move_skip),
+                'bump_1': partial(self.handle_movement, 'backward_1', CLOCK_SMALL, self.move_skip),
+                'bump_2': partial(self.handle_movement, 'backward_2', CLOCK_SMALL, self.move_skip),
+            },
+            'forward_check_0': {
+                'timeout': partial(self.handle_movement, 'left_0', CLOCK_PI8, self.move_forward),
+                'bump_0': partial(self.handle_movement, 'backward_0', CLOCK_SMALL, self.move_skip),
+                'bump_1': partial(self.handle_movement, 'backward_1', CLOCK_SMALL, self.move_skip),
+                'bump_2': partial(self.handle_movement, 'backward_2', CLOCK_SMALL, self.move_skip),
+            },
+            'forward_check_1': {
+                'timeout': partial(self.handle_movement, 'right_1', CLOCK_PI8, self.move_forward),
+                'bump_0': partial(self.handle_movement, 'backward_0', CLOCK_SMALL, self.move_skip),
+                'bump_1': partial(self.handle_movement, 'backward_1', CLOCK_SMALL, self.move_skip),
+                'bump_2': partial(self.handle_movement, 'backward_2', CLOCK_SMALL, self.move_skip),
+            },
+            'forward_check_2': {
+                'timeout': partial(self.handle_movement, 'left_2', CLOCK_PI8, self.move_forward),
+                'bump_0': partial(self.handle_movement, 'backward_0', CLOCK_SMALL, self.move_skip),
+                'bump_1': partial(self.handle_movement, 'backward_1', CLOCK_SMALL, self.move_skip),
+                'bump_2': partial(self.handle_movement, 'backward_2', CLOCK_SMALL, self.move_skip),
+            },
+            'backward_0': {
+                'timeout': partial(self.handle_movement, 'left_0', CLOCK_PI8, self.move_backward),
+            },
+            'backward_1': {
+                'timeout': partial(self.handle_movement, 'left_1', CLOCK_PI8, self.move_backward),
+            },
+            'backward_2': {
+                'timeout': partial(self.handle_movement, 'right_2', CLOCK_PI8, self.move_backward),
+            },
+            'left_0': {
+                'timeout': partial(self.handle_movement, 'forward_check_0', CLOCK_BIG, self.move_left),
+            },
+            'left_1': {
+                'timeout': partial(self.handle_movement, 'forward_check_1', CLOCK_BIG, self.move_left),
+            },
+            'left_2': {
+                'timeout': partial(self.handle_movement, 'forward_check_2', CLOCK_BIG, self.move_left),
+            },
+            'right_0': {
+                'timeout': partial(self.handle_movement, 'forward_check_0', CLOCK_BIG, self.move_right),
+            },
+            'right_1': {
+                'timeout': partial(self.handle_movement, 'forward_check_1', CLOCK_BIG, self.move_right),
+            },
+            'right_2': {
+                'timeout': partial(self.handle_movement, 'forward_check_2', CLOCK_BIG, self.move_right),
+            },
+        }
         
         self.mapped = pygame.Surface(win.get_size())
+
+        self.state = 'idle'
+        self.next_state = ''
+        self.next_clock = 0
+        self.clock = 0
+        self.edge = 'timeout'
         
+    def handle_movement(self, next_state, next_clock, movement):
+        self.next_state = next_state
+        self.next_clock = next_clock
+        self.clock -= 1
+        if self.clock <= 0:
+            self.edge = 'timeout'
+            self.state = next_state
+            self.clock = next_clock
+        movement()
+                
     def step(self):
+
+        self.algorithm()
+
         for dust in Dust._reg:
             if dist(self.pos, dust.pos) < BOT_RADIUS:
                 Dust._reg.remove(dust)
@@ -59,14 +143,16 @@ class Bot:
         
         self.sensor_lines = []
         for sensor in self.sensors:
-            new_sensor_pos = ppos + vectorFromAngle(self.angle + sensor, BOT_RADIUS)
+            new_sensor_pos = ppos + vectorFromAngle(self.angle + self.sensors[sensor], BOT_RADIUS)
             self.sensor_lines.append((vectorCopy(ppos), new_sensor_pos))
             
         stop = False
-        for sensor_line in self.sensor_lines:
+        for sensor_index, sensor_line in enumerate(self.sensor_lines):
             for wall in Wall._reg:
                 if line_intersection(wall.line, sensor_line):
                     ppos = self.pos
+                    self.intersection_response(sensor_index)
+                    self.last_bump_sensor_index = sensor_index
                     stop = True
                     break
             if stop:
@@ -79,15 +165,51 @@ class Bot:
         pygame.draw.circle(win, (255,0,0), self.pos, BOT_RADIUS, 1)
         pygame.draw.line(win, (255,255,255), self.pos, self.pos + vectorFromAngle(self.angle, BOT_RADIUS))
         
-        for sensor_line in self.sensor_lines:
-            pygame.draw.line(win, (0,0,255), sensor_line[0], sensor_line[1])
+        pygame.draw.line(win, self.sensors_color[0], self.sensor_lines[0][0], self.sensor_lines[0][1])
+        pygame.draw.line(win, self.sensors_color[1], self.sensor_lines[1][0], self.sensor_lines[1][1])
+        pygame.draw.line(win, self.sensors_color[2], self.sensor_lines[2][0], self.sensor_lines[2][1])
         
         pygame.draw.circle(self.mapped, (120,0,0), self.pos, BOT_RADIUS)
+
+    def move_forward(self):
+        self.speed = BOT_MAX_SPEED
+
+    def move_backward(self):
+        self.speed = -BOT_MAX_SPEED
+
+    def move_left(self):
+        self.angle -= BOT_ROTATION_SPEED
+
+    def move_right(self):
+        self.angle += BOT_ROTATION_SPEED
+
+    def move_skip(self):
+        self.clock = 1
+
+    def intersection_response(self, sensor_index):
+        if 'left' in self.state or 'right' in self.state:
+            return
+        print('[INTERSECTION]', sensor_index)
+        self.edge = f'bump_{str(sensor_index)}'
+        # self.state = f'backward_{str(sensor_index)}'
+        self.clock = CLOCK_SMALL
+
+    def algorithm(self):
         
+        try:
+            func = self.state_map[self.state][self.edge]
+            # print(self.state, self.edge, self.clock, func.args)
+            func()
+        except Exception as e:
+            print(type(e))
+            print(e)
+            print(self.state, self.edge, self.clock)
+            exit(1)   
+
+
 class Docking:
     _instance = None
     def __init__(self, pos):
-        print(pos)
         self.pos = vecFromTuple(pos)
         Docking._instance = self
         
@@ -114,9 +236,11 @@ class Dust:
     def draw(self):
         pygame.draw.circle(win, (125, 125, 125), self.pos, 2)
 
+
+
 ### main loop
 
-Docking((-100,100))
+Docking((0,0))
 bot = Bot()
 
 for _ in range(80):
@@ -154,17 +278,18 @@ while run:
             if event.key == pygame.K_d:
                 Docking(pygame.mouse.get_pos())
                 bot.pos = vecFromTuple(pygame.mouse.get_pos())
+                bot.state = 'dock'
     keys = pygame.key.get_pressed()
     if keys[pygame.K_ESCAPE]:
         run = False
     if keys[pygame.K_RIGHT]:
-        bot.angle += BOT_ROTATION_SPEED
+        bot.move_right()
     if keys[pygame.K_LEFT]:
-        bot.angle -= BOT_ROTATION_SPEED
+        bot.move_left()
     if keys[pygame.K_UP]:
-        bot.speed = BOT_MAX_SPEED
+        bot.move_forward()
     if keys[pygame.K_DOWN]:
-        bot.speed = -BOT_MAX_SPEED
+        bot.move_backward()
     
     ctrl_hold = False
     if keys[pygame.K_LCTRL]:
@@ -175,7 +300,7 @@ while run:
 
     # draw
     win.fill((0,0,0))
-    # win.blit(bot.mapped, (0,0))
+    win.blit(bot.mapped, (0,0))
     for wall in Wall._reg:
         wall.draw()
     for dust in Dust._reg:
