@@ -2,7 +2,7 @@ import pygame
 from vector import *
 from random import randint
 from functools import partial
-from math import pi
+from math import pi, degrees
 
 pygame.init()
 
@@ -16,9 +16,14 @@ BOT_MAX_SPEED = 2
 BOT_ROTATION_SPEED = pi / 32
 BOT_RADIUS = 15
 
-CLOCK_SMALL = 15
-CLOCK_BIG = 15
+CLOCK_SMALL = 10
+CLOCK_BIG = 20
 CLOCK_PI8 = 4
+CLOCK_IMMIDIATE = 1
+
+DEBUG = False
+
+bot_sprite = pygame.image.load('bot_sprite.png')
 
 def load_room(path):
     with open(path, 'r') as file:
@@ -93,32 +98,52 @@ class Bot:
                 'timeout': partial(self.handle_movement, 'right_2', CLOCK_PI8, self.move_backward),
             },
             'left_0': {
-                'timeout': partial(self.handle_movement, 'forward_check_0', CLOCK_BIG, self.move_left),
+                'timeout': partial(self.handle_movement, 'forward_corner_check_0', CLOCK_BIG, self.move_left),
             },
             'left_1': {
-                'timeout': partial(self.handle_movement, 'forward_check_1', CLOCK_BIG, self.move_left),
+                'timeout': partial(self.handle_movement, 'forward_corner_check_1', CLOCK_BIG, self.move_left),
             },
             'left_2': {
-                'timeout': partial(self.handle_movement, 'forward_check_2', CLOCK_BIG, self.move_left),
+                'timeout': partial(self.handle_movement, 'forward_corner_check_2', CLOCK_BIG, self.move_left),
             },
             'right_0': {
-                'timeout': partial(self.handle_movement, 'forward_check_0', CLOCK_BIG, self.move_right),
+                'timeout': partial(self.handle_movement, 'forward_corner_check_0', CLOCK_BIG, self.move_right),
             },
             'right_1': {
-                'timeout': partial(self.handle_movement, 'forward_check_1', CLOCK_BIG, self.move_right),
+                'timeout': partial(self.handle_movement, 'forward_corner_check_1', CLOCK_BIG, self.move_right),
             },
             'right_2': {
-                'timeout': partial(self.handle_movement, 'forward_check_2', CLOCK_BIG, self.move_right),
+                'timeout': partial(self.handle_movement, 'forward_corner_check_2', CLOCK_BIG, self.move_right),
+            },
+            'forward_corner_check_0': {
+                'timeout': partial(self.handle_movement, 'backward_0', CLOCK_BIG, self.move_forward),
+                'bump_0': partial(self.handle_movement, 'forward_check_0', CLOCK_IMMIDIATE, self.move_skip),
+                'bump_1': partial(self.handle_movement, 'forward_check_1', CLOCK_IMMIDIATE, self.move_skip),
+                'bump_2': partial(self.handle_movement, 'forward_check_2', CLOCK_IMMIDIATE, self.move_skip),
+            },
+            'forward_corner_check_1': {
+                'timeout': partial(self.handle_movement, 'backward_1', CLOCK_BIG, self.move_forward),
+                'bump_0': partial(self.handle_movement, 'forward_check_0', CLOCK_IMMIDIATE, self.move_skip),
+                'bump_1': partial(self.handle_movement, 'forward_check_1', CLOCK_IMMIDIATE, self.move_skip),
+                'bump_2': partial(self.handle_movement, 'forward_check_2', CLOCK_IMMIDIATE, self.move_skip),
+            },
+            'forward_corner_check_2': {
+                'timeout': partial(self.handle_movement, 'backward_2', CLOCK_BIG, self.move_forward),
+                'bump_0': partial(self.handle_movement, 'forward_check_0', CLOCK_IMMIDIATE, self.move_skip),
+                'bump_1': partial(self.handle_movement, 'forward_check_1', CLOCK_IMMIDIATE, self.move_skip),
+                'bump_2': partial(self.handle_movement, 'forward_check_2', CLOCK_IMMIDIATE, self.move_skip),
             },
         }
         
-        self.mapped = pygame.Surface(win.get_size())
+        self.mapped = pygame.Surface(win.get_size(), pygame.SRCALPHA)
 
         self.state = 'idle'
         self.next_state = ''
         self.next_clock = 0
         self.clock = 0
         self.edge = 'timeout'
+        
+        self.t = 0
         
     def handle_movement(self, next_state, next_clock, movement):
         self.next_state = next_state
@@ -132,7 +157,7 @@ class Bot:
                 
     def step(self):
 
-        self.algorithm()
+        # self.algorithm()
 
         for dust in Dust._reg:
             if dist(self.pos, dust.pos) < BOT_RADIUS:
@@ -161,15 +186,29 @@ class Bot:
         self.pos = ppos
         self.speed = 0
         
+        self.t += 0.3
+        
     def draw(self):
-        pygame.draw.circle(win, (255,0,0), self.pos, BOT_RADIUS, 1)
-        pygame.draw.line(win, (255,255,255), self.pos, self.pos + vectorFromAngle(self.angle, BOT_RADIUS))
+    
+        normal = vectorFromAngle(self.angle, BOT_RADIUS).normal() * 3/4
+        p1 = self.pos + vectorFromAngle(self.angle, BOT_RADIUS * 3/4) + normal
+        p2 = self.pos + vectorFromAngle(self.angle, BOT_RADIUS * 3/4) - normal
+        t = self.t
+        pygame.draw.line(win, (0,0,0), p1 + vectorFromAngle(self.t, 7), p1 - vectorFromAngle(self.t, 7), 2)
+        pygame.draw.line(win, (0,0,0), p2 + vectorFromAngle(-self.t, 7), p2 - vectorFromAngle(-self.t, 7), 2)
+    
+        sprite = pygame.transform.rotate(bot_sprite, degrees(-self.angle))
+        win.blit(sprite, self.pos - tup2vec(sprite.get_size()) / 2)
         
-        pygame.draw.line(win, self.sensors_color[0], self.sensor_lines[0][0], self.sensor_lines[0][1])
-        pygame.draw.line(win, self.sensors_color[1], self.sensor_lines[1][0], self.sensor_lines[1][1])
-        pygame.draw.line(win, self.sensors_color[2], self.sensor_lines[2][0], self.sensor_lines[2][1])
-        
-        pygame.draw.circle(self.mapped, (120,0,0), self.pos, BOT_RADIUS)
+        if DEBUG:
+            pygame.draw.circle(win, (255,0,0), self.pos, BOT_RADIUS, 1)
+            pygame.draw.line(win, (255,255,255), self.pos, self.pos + vectorFromAngle(self.angle, BOT_RADIUS))
+            
+            pygame.draw.line(win, self.sensors_color[0], self.sensor_lines[0][0], self.sensor_lines[0][1])
+            pygame.draw.line(win, self.sensors_color[1], self.sensor_lines[1][0], self.sensor_lines[1][1])
+            pygame.draw.line(win, self.sensors_color[2], self.sensor_lines[2][0], self.sensor_lines[2][1])
+            
+        pygame.draw.circle(self.mapped, (103,111,147), self.pos, BOT_RADIUS)
 
     def move_forward(self):
         self.speed = BOT_MAX_SPEED
@@ -192,13 +231,13 @@ class Bot:
         print('[INTERSECTION]', sensor_index)
         self.edge = f'bump_{str(sensor_index)}'
         # self.state = f'backward_{str(sensor_index)}'
-        self.clock = CLOCK_SMALL
+        self.clock = CLOCK_SMALL 
 
     def algorithm(self):
         
         try:
             func = self.state_map[self.state][self.edge]
-            # print(self.state, self.edge, self.clock, func.args)
+            print(self.state, self.edge, self.clock, func.args)
             func()
         except Exception as e:
             print(type(e))
@@ -226,7 +265,7 @@ class Wall:
     def __repr__(self):
         return str(self)
     def draw(self):
-        pygame.draw.line(win, (255,255,255), self.line[0], self.line[1])
+        pygame.draw.line(win, (255,255,255), self.line[0], self.line[1], 2)
 
 class Dust:
     _reg = []
@@ -236,11 +275,18 @@ class Dust:
     def draw(self):
         pygame.draw.circle(win, (125, 125, 125), self.pos, 2)
 
-
+def draw_background():
+    win.fill((8,20,62))
+    win.blit(bot.mapped, (0,0))
+    for i in range(0, win_dimensions[0], 50):
+        pygame.draw.line(win, (60,69,112), (i, 0), (i, win_dimensions[1]))
+    for i in range(0, win_dimensions[1], 50):
+        pygame.draw.line(win, (60,69,112), (0, i), (win_dimensions[0], i))
 
 ### main loop
 
 Docking((0,0))
+load_room('room.txt')
 bot = Bot()
 
 for _ in range(80):
@@ -279,6 +325,8 @@ while run:
                 Docking(pygame.mouse.get_pos())
                 bot.pos = vecFromTuple(pygame.mouse.get_pos())
                 bot.state = 'dock'
+            if event.key == pygame.K_p:
+                DEBUG = not DEBUG
     keys = pygame.key.get_pressed()
     if keys[pygame.K_ESCAPE]:
         run = False
@@ -299,8 +347,9 @@ while run:
     bot.step()
 
     # draw
-    win.fill((0,0,0))
-    win.blit(bot.mapped, (0,0))
+    draw_background()
+    # win.fill((0,0,0))
+    # win.blit(bot.mapped, (0,0))
     for wall in Wall._reg:
         wall.draw()
     for dust in Dust._reg:
